@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chatbot with Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+        }
+        #chat {
+            width: 100%;
+            height: 50vh;
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #ccc;
+            padding: 10px;
+            background-color: #f5f5f5;
+        }
+        #map-container {
+            width: 100%;
+            height: 50vh;
+            position: relative;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 80%;
+            word-wrap: break-word;
+            white-space: pre-wrap; /* preserve newlines and whitespace */
+        }
+        .message.user {
+            background-color: #d1e7dd;
+            align-self: flex-end;
+            text-align: right;
+        }
+        .message.bot {
+            background-color: #cce5ff;
+            align-self: flex-start;
+        }
+        #input-container {
+            display: flex;
+        }
+        #input-container input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-right: 5px;
+        }
+        #input-container button {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        #input-container button:hover {
+            background-color: #0056b3;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        #pano {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: none;
+        }
+        #close-pano {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1;
+            background: white;
+            padding: 5px;
+            cursor: pointer;
+            display: none;
+        }
+        #buttons-container {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 1;
+            display: flex;
+            gap: 10px;
+        }
+        .action-button {
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .action-button:hover {
+            background-color: #0056b3;
+        }
+        #reset-route-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1;
+            padding: 10px;
+            background-color: #ff0000;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #reset-route-button:hover {
+            background-color: #cc0000;
+        }
+        #mode-buttons {
+            position: absolute;
+            bottom: 50px;
+            right: 10px;
+            z-index: 1;
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+        }
+        #save-route-button {
+            display: none;
+            position: absolute;
+            bottom: 50px;
+            left: 10px;
+            z-index: 1;
+            padding: 10px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #save-route-button:hover {
+            background-color: #45a049;
+        }
+        #saved-routes-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px;
+            z-index: 2;
+            border: 1px solid #ccc;
+            display: none;
+        }
+        @media (min-width: 768px) {
+            body {
+                flex-direction: row;
+            }
+            #chat {
+                width: 40%;
+                height: 100vh;
+                border-right: 1px solid #ccc;
+                border-bottom: none;
+            }
+            #map-container {
+                width: 60%;
+                height: 100vh;
+            }
+        }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap" async defer></script>
+    <script>
+        let map;
+        let markers = [];
+        let userLocation = {};
+        let recommendedPlaceIds = [];
+        let panorama;
+        let directionsService;
+        let directionsRenderer;
+        let selectedMarker;
+        let currentRoute = [];
+        let savedRoutes = [];
+
+        function initMap() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+
+                    map = new google.maps.Map(document.getElementById('map'), {
+                        center: userLocation,
+                        zoom: 14
+                    });
+
+                    panorama = new google.maps.StreetViewPanorama(
+                        document.getElementById('pano'), {
+                            position: userLocation,
+                            pov: { heading: 165, pitch: 0 },
+                            zoom: 1
+                        }
+                    );
+
+                    map.setStreetView(panorama);
+
+                    new google.maps.Marker({
+                        position: userLocation,
+                        map: map,
+                        title: 'Your location'
+                    });
+
+                    // Directions service and renderer
+                    directionsService = new google.maps.DirectionsService();
+                    directionsRenderer = new google.maps.DirectionsRenderer();
+                    directionsRenderer.setMap(map);
+                }, function() {
+                    handleLocationError(true, map.getCenter());
+                });
+            } else {
+                handleLocationError(false, map.getCenter());
+            }
+        }
+
+        function handleLocationError(browserHasGeolocation, pos) {
+            var infoWindow = new google.maps.InfoWindow({
+                position: pos,
+                content: browserHasGeolocation ?
+                    'Error: The Geolocation service failed.' :
+                    'Error: Your browser doesn\'t support geolocation.'
+            });
+            infoWindow.open(map);
+        }
+
+        function placeMarkers(places) {
+            clearMarkers();
+            console.log("Placing markers for the following places:", places); // 디버그 로그 추가
+            for (let place of places) {
+                if (place.geometry && place.geometry.location) {
+                    let marker = new google.maps.Marker({
+                        position: { lat: place.geometry.location.lat, lng: place.geometry.location.lng },
+                        map: map,
+                        title: place.name,
+                    });
+
+                    marker.addListener('click', function() {
+                        selectedMarker = marker;
+                        document.getElementById('buttons-container').style.display = 'flex';
+                    });
+
+                    marker.setMap(map);
+                    markers.push(marker);
+                } else {
+                    console.log("Place is missing geometry or location data:", place); // 디버그 로그 추가
+                }
+            }
+        }
+
+        function clearMarkers() {
+            for (let marker of markers) {
+                marker.setMap(null);
+            }
+            markers = [];
+        }
+
+        function closeStreetView() {
+            panorama.setVisible(false);
+            document.getElementById('pano').style.display = 'none';
+            document.getElementById('close-pano').style.display = 'none';
+        }
+
+        function resetRoute() {
+            directionsRenderer.setDirections({ routes: [] });
+            currentRoute = [];
+            document.getElementById('save-route-button').style.display = 'none';
+        }
+
+        function showModeButtons() {
+            document.getElementById('mode-buttons').style.display = 'flex';
+        }
+
+        function calculateAndDisplayRoute(travelMode) {
+            if (!selectedMarker) {
+                displayMessage('Bot', '먼저 마커를 선택해주세요.', 'bot');
+                return;
+            }
+            const destination = selectedMarker.getPosition();
+            if (currentRoute.length === 0) {
+                currentRoute.push(userLocation);
+            }
+            currentRoute.push(destination);
+
+            const waypoints = currentRoute.slice(1, -1).map(location => ({
+                location: location,
+                stopover: true
+            }));
+
+            directionsService.route(
+                {
+                    origin: currentRoute[0],
+                    destination: currentRoute[currentRoute.length - 1],
+                    waypoints: waypoints,
+                    travelMode: travelMode
+                },
+                (response, status) => {
+                    if (status === "OK") {
+                        directionsRenderer.setDirections(response);
+                        displayMessage('Bot', `경로를 찾았습니다. 모드: ${travelMode}`, "bot");
+                        document.getElementById('save-route-button').style.display = 'block';
+                    } else if (status === "ZERO_RESULTS" && travelMode === google.maps.TravelMode.WALKING) {
+                        calculateAndDisplayRoute(google.maps.TravelMode.BICYCLING);
+                    } else if (status === "ZERO_RESULTS" && travelMode === google.maps.TravelMode.BICYCLING) {
+                        calculateAndDisplayRoute(google.maps.TravelMode.TRANSIT);
+                    } else if (status === "ZERO_RESULTS" && travelMode === google.maps.TravelMode.TRANSIT) {
+                        calculateAndDisplayRoute(google.maps.TravelMode.DRIVING);
+                    } else {
+                        displayMessage('Bot', `경로 찾기 요청이 실패했습니다: ${status}`, "bot");
+                    }
+                    document.getElementById('mode-buttons').style.display = 'none';
+                }
+            );
+        }
+
+        function saveCurrentRoute() {
+            fetch('/save_route', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ route: currentRoute })
+            })
+            .then(response => response.json())
+            .then(data => {
+                displayMessage('Bot', data.message, 'bot');
+                document.getElementById('save-route-button').style.display = 'none';
+            })
+            .catch(error => {
+                displayMessage('Bot', '경로 저장 중 오류가 발생했습니다.', 'bot');
+                console.error('Error saving route:', error);
+            });
+        }
+
+        function showSavedRoutes() {
+            fetch('/get_routes')
+                .then(response => response.json())
+                .then(data => {
+                    savedRoutes = data;
+                    const list = document.getElementById('saved-routes-list');
+                    list.innerHTML = '';
+                    savedRoutes.forEach((route, index) => {
+                        const listItem = document.createElement('li');
+                        listItem.textContent = `Route ${index + 1}`;
+                        listItem.addEventListener('click', () => displaySavedRoute(route));
+                        list.appendChild(listItem);
+                    });
+                    document.getElementById('saved-routes-container').style.display = 'block';
+                })
+                .catch(error => {
+                    displayMessage('Bot', '저장된 경로를 가져오는 중 오류가 발생했습니다.', 'bot');
+                    console.error('Error fetching saved routes:', error);
+                });
+        }
+
+        function displaySavedRoute(route) {
+            resetRoute();
+            const waypoints = route.route.slice(1, -1).map(location => ({
+                location: new google.maps.LatLng(location.lat, location.lng),
+                stopover: true
+            }));
+            directionsService.route(
+                {
+                    origin: new google.maps.LatLng(route.route[0].lat, route.route[0].lng),
+                    destination: new google.maps.LatLng(route.route[route.route.length - 1].lat, route.route[route.route.length - 1].lng),
+                    waypoints: waypoints,
+                    travelMode: google.maps.TravelMode.DRIVING
+                },
+                (response, status) => {
+                    if (status === 'OK') {
+                        directionsRenderer.setDirections(response);
+                    } else {
+                        displayMessage('Bot', `저장된 경로 표시 중 오류가 발생했습니다: ${status}`, 'bot');
+                    }
+                }
+            );
+            document.getElementById('saved-routes-container').style.display = 'none';
+        }
+
+        function closeSavedRoutes() {
+            document.getElementById('saved-routes-container').style.display = 'none';
+        }
+
+        async function sendMessage() {
+            const userInput = document.getElementById('inputText').value;
+            displayMessage('User', userInput, 'user');
+            await fetchNearbyPlaces(userInput);
+        }
+
+        async function fetchNearbyPlaces(userInput = "") {
+            const requestData = { 
+                lat: userLocation.lat, 
+                lng: userLocation.lng, 
+                exclude_place_ids: recommendedPlaceIds,
+                user_input: userInput
+            };
+
+            const response = await fetch('/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                displayMessage('Bot', "근처 장소를 찾고 있습니다 ~:", 'bot');
+                displayMessage('Bot', data.place_info, 'bot');
+                placeMarkers(data.places);
+                recommendedPlaceIds = recommendedPlaceIds.concat(data.place_ids);
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function updateLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+
+                    map.setCenter(userLocation);
+
+                    new google.maps.Marker({
+                        position: userLocation,
+                        map: map,
+                        title: 'Your location'
+                    });
+                }, function() {
+                    handleLocationError(true, map.getCenter());
+                });
+            } else {
+                handleLocationError(false, map.getCenter());
+            }
+        }
+
+        function displayMessage(sender, message, type) {
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('message', type);
+            messageContainer.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            document.getElementById('messages').appendChild(messageContainer);
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        }
+    </script>
+</head>
+<body>
+    <div id="chat">
+        <div id="messages"></div>
+        <div id="input-container">
+            <input type="text" id="inputText" placeholder="Enter your question">
+            <button onclick="sendMessage()">Send</button>
+            <button onclick="updateLocation()">Update Location</button>
+            <button onclick="showSavedRoutes()">Show Saved Routes</button>
+            <button onclick="window.location.href='{{ url_for('auth.logout') }}'">Logout</button>
+        </div>
+    </div>
+    <div id="map-container">
+        <div id="map"></div>
+        <div id="pano"></div>
+        <div id="close-pano" onclick="closeStreetView()">Close Street View</div>
+        <div id="buttons-container" style="display:none;">
+            <button id="directions-button" class="action-button" onclick="showModeButtons()">Get Directions</button>
+            <button id="streetview-button" class="action-button" onclick="showStreetView(selectedMarker.getPosition())">Show Street View</button>
+            <button id="save-route-button" class="action-button" onclick="saveCurrentRoute()">Save Route</button>
+        </div>
+        <div id="mode-buttons">
+            <button class="action-button" onclick="calculateAndDisplayRoute(google.maps.TravelMode.WALKING)">Walking</button>
+            <button class="action-button" onclick="calculateAndDisplayRoute(google.maps.TravelMode.BICYCLING)">Bicycling</button>
+            <button class="action-button" onclick="calculateAndDisplayRoute(google.maps.TravelMode.TRANSIT)">Transit</button>
+            <button class="action-button" onclick="calculateAndDisplayRoute(google.maps.TravelMode.DRIVING)">Driving</button>
+        </div>
+        <button id="reset-route-button" onclick="resetRoute()">Reset Route</button>
+    </div>
+
+    <div id="saved-routes-container">
+        <h3>Saved Routes</h3>
+        <ul id="saved-routes-list"></ul>
+        <button onclick="closeSavedRoutes()">Close</button>
+    </div>
+</body>
+</html>
+
+{% endblock %}
